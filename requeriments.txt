@@ -1,0 +1,6 @@
+torch
+logging
+transformers
+huggingface[hf_xet]
+datasets
+chatterbot
