@@ -2,7 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import random
 import typing
+import os
+import networkx as nx
+
 
 class Neuratron(nn.Module):
     def __init__(self, total_size: typing.Tuple[int, int]):
@@ -21,7 +25,7 @@ class Neuratron(nn.Module):
         # Inicialização dos pesos
         self._init_parameters()
 
-    def _init_parameters(self):
+    def _init_parameters(self) -> None:
         """Inicializa os parâmetros usando Kaiming initialization"""
         # Inicialização do peso
         nn.init.kaiming_uniform_(self.total_weight, a=math.sqrt(5))
@@ -32,7 +36,7 @@ class Neuratron(nn.Module):
             bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
             nn.init.uniform_(self.total_bias, -bound, bound)
 
-    def allocate(self, name: str, input_shape: int, output_shape: int):
+    def allocate(self, name: str, input_shape: int, output_shape: int) -> bool:
         """Aloca um bloco de parâmetros para uma nova camada"""
         
         # Encontrar o melhor bloco livre que caiba a alocação
