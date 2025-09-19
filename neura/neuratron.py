@@ -1,88 +1,90 @@
 import numpy as np
 import networkx as nx
-import math
+import threading
 import random
-import typing
-import os
+import pickle
+import time
 
+from functools import partial
+from scipy.special import expit
+from scipy.special import softmax
+
+def relu(inp: np.ndarray) -> np.ndarray:
+    return np.array([i if i > 0 else 0 for i in inp])
+
+def linear(inp:np.ndarray) -> np.ndarray:
+    return inp
+
+ACTIVATIONS = {
+    'softmax': softmax,
+    'sigmoid': expit,
+    'linear': linear
+
+}
 
 class Neuratron:
-    def  __init__(self, size:int, lr:float):
-        # Matriz Omega
-        tot_mtrx = np.random.randn(size, size)
+    def __init__(self, n_conns_initial:int, max_conns_per_neuron:int, learning_rate:float):
+        self.conns = nx.Graph()
+        self.neurons = []
+        self.learning_rate = learning_rate
+        self.inp = 0
+        self.wake_up = False
 
-        # Alocacoes e espaços livres
-        self.allocations = {}
-        self.free = [tot_mtrx]
+        # INICIALIZAÇÃO DOS NEURÔNIOS
+        for _ in range(n_conns_initial):
+            n = Neuron()
+            self.conns.add_node(n)
+            self.neurons.append(n)
 
-        # Learning rate
-        self.lr = lr
+        self.chosing_neurons = self.neurons.copy()
 
-        # Grafo de conexões cerebrais
-        self.G = nx.DiGraph()
-    
-    def allocate(self, allocation_name:str, input_size:int, output_size:int) -> bool:
-        # Itera sobre as partições livres
-        for i, f in enumerate(self.free):
-            rows, cols = f.shape
-
-            if input_size <= rows and output_size <= cols:
-                # Aloca a matriz
-
-                self.free.pop(i)
-                self.allocations[allocation_name] = {
-                    'weight': f[:input_size, :output_size],
-                    'bias': np.random.randn(output_size),
-                    'prob': 1,
-                    'usages': 0                
-                }
-
-                self.free.extend([f[:input_size, output_size:], f[input_size:, output_size:], f[input_size:, :output_size]])
-                for alloc, params in self.allocations.items():
-
-                    _ , shape_in_col = self.allocations[allocation_name]['weight'].shape
-                    shape_out_row, _ = params['weight'].shape
-
-                    if shape_in_col == shape_out_row and alloc != allocation_name:
-                        self.G.add_edge(allocation_name, alloc)
-                
-                return True
-        return False
-    
-    def forward(self, X:np.ndarray, first_alloc:str, depth:int=10) -> np.ndarray:
-        res = np.copy(X)
-        w = self.allocations[first_alloc]['weight']
-        b = self.allocations[first_alloc]['bias']
-        
-        self.history = [first_alloc]
-        self.allocations[first_alloc]['usages'] += 1
-
-        for _ in range(depth):
-            res = res @ w + b 
-            weights = [self.allocations[alloc]['prob'] for alloc in self.G.neighbors(first_alloc)]
-            if len(weights) == 0:
-                break
-
-            chosed = random.choices(list(self.G.neighbors(first_alloc)), weights=weights, k=1)[0]
-
-            self.allocations[chosed]['usages'] += 1
-
-            w = self.allocations[chosed]['weight']
-            b = self.allocations[chosed]['bias']
-
-            self.history.append(chosed)
-            first_alloc = chosed
-
-        return res
-
-    # Algoritmo Backpropagation
-    def backpropagation(self, loss:np.ndarray) -> None:
-        grad = np.gradient(loss)  
-
-        for hist in reversed(self.history):
-            print(grad.shape)
-            self.allocations[hist]['weight'] -= self.lr * (grad @ self.allocations[hist]['weight']).astype(float)
-            self.allocations[hist]['bias'] = grad.astype(float)
-            self.allocations[hist]['prob'] += np.sum(grad)**-1
+        # CRIAÇÃO DAS SINAPSES
+        for N in self.conns.nodes():
+            chosed_neurons = random.sample(list(self.conns.nodes()), k=max_conns_per_neuron)
             
-            grad = grad @ self.allocations[hist]['weight'].T   
+            for chosed in chosed_neurons:
+                self.conns.add_edge(N, chosed, weight=random.uniform(0,1))
+
+    def receive_input(self, target:float) -> None:
+        neuron = random.choice(self.chosing_neurons)
+        neuron.x = self.inp if not self.wake_up else neuron.x
+        self.wake_up = True
+        neurons_processing = []
+        threads = neurons_processing.copy()
+
+        # PARA CADA VIZINHO, PASSAR O VALOR PARA PROCESSAMENTO
+        for neighbor in self.conns.neighbors(neuron):
+            thread = threading.Thread(target=partial(neighbor.process, neuron.x, self.conns[neuron][neighbor]['weight']))
+            thread.start()            
+            threads.append(thread)
+            #print(type(thread))
+            neurons_processing.append(neighbor)
+        
+        # TERMINAR THREADS
+        for thread in threads:
+            #print('A', type(thread))
+            thread.join()
+
+        for neur in neurons_processing:
+            d_E = (target - neur.x) * (neur.x - self.inp)
+            anterior_weight = self.conns[neuron][neur]['weight']
+            self.conns[neuron][neur]['weight'] += self.learning_rate * d_E         
+            post_weight = self.conns[neuron][neur]['weight']
+            neur.bias += self.learning_rate * d_E
+
+            print('CHANGE', anterior_weight, post_weight)
+            #time.sleep(1)
+
+        self.chosing_neurons = list(filter(lambda n:n.x > 0, [neighbor for neighbor in self.conns.neighbors(neuron)]))
+
+class Neuron:
+    def __init__(self) -> None:
+        #self.lock = threading.Lock()
+        self.bias = random.uniform(0, 1)
+        self.is_calling = False
+        self.x = 1
+
+    def process(self, x:float, weight:float) -> float:
+        self.is_calling = True
+        #print(x, weight)
+        self.x = ACTIVATIONS['sigmoid'](x * weight) + self.bias
