@@ -66,16 +66,16 @@ class Neuratron:
             thread.join()
 
         for neur in neurons_processing:
-            d_E = (target - neur.x) * (neur.x - self.inp)
+            d_E = (target - neur.x) * neur * (1 - neur.x)
             anterior_weight = self.conns[neuron][neur]['weight']
             self.conns[neuron][neur]['weight'] += self.learning_rate * d_E         
             post_weight = self.conns[neuron][neur]['weight']
             neur.bias += self.learning_rate * d_E
 
             print('CHANGE', anterior_weight, post_weight)
-            #time.sleep(1)
+            time.sleep(1)
 
-        self.chosing_neurons = list(filter(lambda n:n.x > 0, [neighbor for neighbor in self.conns.neighbors(neuron)]))
+        self.chosing_neurons = list(filter(lambda n:n.x > 0, self.conns.neighbors(neuron)))
 
 class Neuron:
     def __init__(self) -> None:
